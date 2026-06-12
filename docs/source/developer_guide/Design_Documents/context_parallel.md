@@ -127,3 +127,7 @@ By predefining the maximum amount of KV cache processed per round, we sequential
 - sequences splitting and metadata prepare: `vllm_ascend/worker/model_runner_v1.py`
 - GQA backend: `vllm_ascend/attention/attention_cp.py`
 - MLA backend: `vllm_ascend/attention/mla_cp.py`
+
+### RFC: PCP/DCP Unification
+
+For the analysis of current fragmentation and the proposed `ContextParallelManager` refactor, see [Context Parallel Unification RFC](./context_parallel_unification_rfc.md).
