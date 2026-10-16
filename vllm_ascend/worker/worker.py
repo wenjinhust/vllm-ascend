@@ -118,6 +118,11 @@ torch_non_c_binding_in_graph_functions_npu = dict.fromkeys(
 torch_non_c_binding_in_graph_functions_npu["torch.npu.stream"] = TorchInGraphFunctionVariable  # noqa: E402
 torch._dynamo.trace_rules.torch_name_rule_map.append(torch_non_c_binding_in_graph_functions_npu)  # noqa: E402
 
+from vllm.utils.watch_dog import get_watch_dog, WatchDogHandler
+
+class CustomWatchDogHandler(WatchDogHandler):
+    def handle(self, reason):
+        print(f"CustomWatchDogHandler triggered: {reason}")
 
 class NPUWorker(WorkerBase):
     def __init__(
@@ -141,6 +146,7 @@ class NPUWorker(WorkerBase):
         from vllm_ascend.utils import adapt_patch
 
         adapt_patch()
+        get_watch_dog().register_handler(CustomWatchDogHandler())
 
         # Register ops when worker init.
         from vllm_ascend import ops
