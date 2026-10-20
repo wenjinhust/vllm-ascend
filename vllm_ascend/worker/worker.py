@@ -118,11 +118,9 @@ torch_non_c_binding_in_graph_functions_npu = dict.fromkeys(
 torch_non_c_binding_in_graph_functions_npu["torch.npu.stream"] = TorchInGraphFunctionVariable  # noqa: E402
 torch._dynamo.trace_rules.torch_name_rule_map.append(torch_non_c_binding_in_graph_functions_npu)  # noqa: E402
 
-from vllm.utils.watch_dog import get_watch_dog, WatchDogHandler
-
-class CustomWatchDogHandler(WatchDogHandler):
-    def handle(self, reason):
-        print(f"CustomWatchDogHandler triggered: {reason}")
+from vllm.utils.watch_dog import get_watch_dog, ThreadedWatchDog
+import threading
+import subprocess
 
 class NPUWorker(WorkerBase):
     def __init__(
@@ -146,7 +144,6 @@ class NPUWorker(WorkerBase):
         from vllm_ascend.utils import adapt_patch
 
         adapt_patch()
-        get_watch_dog().register_handler(CustomWatchDogHandler())
 
         # Register ops when worker init.
         from vllm_ascend import ops
@@ -198,6 +195,8 @@ class NPUWorker(WorkerBase):
         self.use_v2_model_runner = self.vllm_config.use_v2_model_runner
         self._kvpp_cache_allocation_plan: KVPPPhysicalCachePlan | None = None
         self._pp_send_work: list[Handle] = []
+
+        self._watchdog_is_set = False
 
         ascend_compilation_config = get_ascend_config().ascend_compilation_config
         if ascend_compilation_config.enable_npugraph_ex and ascend_compilation_config.enable_static_kernel:
@@ -754,6 +753,37 @@ class NPUWorker(WorkerBase):
             return int(available_memory * scale)
         return available_memory
 
+    def _dump_msnpureport_inner(self):
+        try:
+            pre_cmd = f"msnpureport --docker -g debug -d {self.rank}"
+            subprocess.run(pre_cmd, shell=True, capture_output=True, text=True, check=True)
+            if self.local_rank == 0:
+                time.sleep(1)
+                cmd = "cd /home/w00556288 && msnpureport --docker -f"
+                subprocess.run(cmd, shell=True, capture_output=True, text=True, check=True)
+        except subprocess.CalledProcessError as e:
+            logger.warning(f"Failed to dump msnpureport: {e}")
+
+    def _dump_msnpureport(self):
+        thread = threading.Thread(target=self._dump_msnpureport_inner, daemon=True)
+        thread.start()
+
+    def prepare_watchdog(self) -> None:
+        if self._watchdog_is_set:
+            return
+        try:
+            _watchdog = get_watch_dog()
+            if not isinstance(_watchdog, ThreadedWatchDog):
+                return
+
+            def ascend_watchdog_handler(reason: str) -> None:
+                _watchdog.dump_stack(reason)
+                self._dump_msnpureport()
+
+            _watchdog.set_handler(ascend_watchdog_handler)
+        finally:
+            self._watchdog_is_set = True
+
     def log_memory_stats(self) -> None:
         """Profiles the torch reserved memory, torch allocated memory in execute_model()."""
         if not logger.isEnabledFor(logging.DEBUG):
@@ -770,6 +800,7 @@ class NPUWorker(WorkerBase):
         self,
         scheduler_output: "SchedulerOutput",
     ) -> ModelRunnerOutput | AsyncModelRunnerOutput | None:
+        self.prepare_watchdog()
         self.log_memory_stats()
         # enable msMonitor to monitor the performance of vllm-ascend
         if get_ascend_config().msmonitor_use_daemon:
@@ -1271,6 +1302,7 @@ class NPUWorker(WorkerBase):
         torch.npu.synchronize()
 
     def execute_dummy_batch(self) -> None:
+        self.prepare_watchdog()
         self.log_memory_stats()
         num_tokens = getattr(self.model_runner, "uniform_decode_query_len", 1)
         self.model_runner._dummy_run(num_tokens, uniform_decode=True, skip_gdn_state_update=True)
