@@ -6,13 +6,6 @@ if [ "${ENABLE_COVERAGE:-}" = "true" ]; then
   enable_coverage=true
 fi
 
-# Cap pytest-xdist parallelism for the slipcover path. "-n auto" spawns one
-# worker per CPU (192 on the NPU runners), and every e2e worker initializes
-# torch_npu/vLLM engine subprocesses, starving the host and triggering
-# worker-crash storms (xdist "maximum crashed workers reached", CI run
-# 111649013424). A fixed small cap keeps the shared runners stable.
-pytest_xdist_workers="${PYTEST_XDIST_WORKERS:-16}"
-
 # Set to true temporarily to run all selected targets before reporting failure.
 continue_on_error=false
 
@@ -37,6 +30,25 @@ npu_type="$1"
 num_npus="$2"
 mode="$3"
 shift 3
+
+# Slipcover-path pytest-xdist parallelism. "-n auto" would spawn one worker
+# per CPU (192 on the NPU runners). cpu-ut tests are lightweight CPU-only
+# tests, so they keep a fixed parallel cap. NPU e2e targets must stay
+# serial: every e2e worker starts vLLM engine subprocesses that each demand
+# ~0.9 of the card's memory on startup, and engines co-scheduled by parallel
+# workers on one card trip the startup free-memory check ("Free memory on
+# device ... less than desired GPU memory utilization"), OOM, or hang in
+# rendezvous (CI run 112255469614 failed 17/24 e2e jobs this way; run
+# 111649013424 hit worker-crash storms). Serial matches the pre-slipcover
+# behavior for e2e. PYTEST_XDIST_WORKERS overrides both.
+pytest_xdist_workers="${PYTEST_XDIST_WORKERS:-}"
+if [ -z "${pytest_xdist_workers}" ]; then
+  if [ "${npu_type}" = "cpu" ]; then
+    pytest_xdist_workers=16
+  else
+    pytest_xdist_workers=1
+  fi
+fi
 
 record_timing=false
 if [ "$1" = "--timing" ]; then
