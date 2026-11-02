@@ -132,10 +132,9 @@ def test_v41_draft_routes_to_v41():
     config = SimpleNamespace(compilation_config=SimpleNamespace(static_forward_context={}))
     with (
         patch.object(DeepseekV41SWAAttention, "__init__", initialize_base),
-        patch("vllm_ascend.attention.context_parallel.dsa_v41_cp.enable_dsa_cp", return_value=cp),
-        # The draft is built under a PCP=1 config; enable_pcp() reads the global
-        # vLLM config, which is not set on fresh xdist workers.
-        patch("vllm_ascend.attention.context_parallel.dsa_v41_cp.enable_pcp", return_value=False),
+        # The draft is built under a PCP=1 config; is_pcp_enabled() reads the
+        # global vLLM config, which is not set on fresh xdist workers.
+        patch("vllm_ascend.attention.context_parallel.dsa_v41_cp.is_pcp_enabled", return_value=False),
         # AscendDSAV41Impl.__init__ reads the global AscendConfig, which is not
         # initialized on fresh xdist workers.
         patch(
