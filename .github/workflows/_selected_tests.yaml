@@ -437,9 +437,17 @@ jobs:
         if: ${{ !inputs.fast-exit }}
         run: |
           pip install diff-cover
+          # Generate the markdown report first, without a threshold, so
+          # tests/diff_coverage.md always exists: the "Upload diff coverage
+          # report" step below (if: !cancelled()) then publishes it, and
+          # post_fork_coverage_comment.yaml can post the comment even when
+          # coverage is below the threshold.
           diff-cover ./tests/coverage.xml --compare-branch=origin/${{ github.base_ref }} \
-            --fail-under=80 \
             --markdown-report ./tests/diff_coverage.md
+          # Enforce the threshold separately so coverage below 80% still
+          # fails the job (and therefore ci-gate).
+          diff-cover ./tests/coverage.xml --compare-branch=origin/${{ github.base_ref }} \
+            --fail-under=80
 
       - name: Upload diff coverage report
         if: ${{ !cancelled() }}
