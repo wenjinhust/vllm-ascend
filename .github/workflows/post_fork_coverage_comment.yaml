@@ -15,15 +15,40 @@
 # This file is a part of the vllm-ascend project.
 #
 
-# Post-coverage comment for fork PRs. This workflow runs on pull_request_target
-# because a fork PR's pull_request GITHUB_TOKEN is read-only and cannot write
-# PR comments. SECURITY: this workflow never checks out or executes the fork's
-# code. It only downloads the diff-coverage markdown produced by the trusted
-# 'pr_test.yaml' pull_request run (as the coverage-report artifact) and posts it
-# as a PR comment. Do not add any step here that runs code coming from the PR.
-name: Post Fork Coverage Comment
+# Post-coverage comment for PRs. This is the single coverage comment poster
+# for both same-repo and fork PRs: a fork PR's pull_request GITHUB_TOKEN is
+# read-only and cannot write PR comments, so the whole job is done here with
+# a token that has pull-requests: write.
+#
+# Two triggers:
+# - workflow_run (E2E completed) is the main path: it fires once the E2E run
+#   finishes (including re-runs). The run does NOT need to be green - the
+#   comment only depends on the cpu-ut jobs having uploaded the
+#   coverage-report artifact, which they do on success even when the e2e
+#   matrix fails. There is no per-job completion trigger in GitHub Actions,
+#   so run completion is the earliest point a fork comment can be posted.
+# - pull_request_target (opened/synchronize) covers the rare case where a
+#   successful run for the head sha already exists when the PR is opened or
+#   re-opened. Without the workflow_run trigger, a fork PR would never get
+#   its comment, because this event fires at push time, before a run for the
+#   new head sha can exist.
+#
+# SECURITY: this workflow never checks out or executes the fork's code. It
+# only downloads the diff-coverage markdown produced by the trusted
+# 'pr_test.yaml' pull_request run (as the coverage-report artifact) and posts
+# it as a PR comment. Do not add any step here that runs code coming from the
+# PR. Note that a workflow_run-triggered workflow always runs the workflow
+# file from the default branch, so this change only takes effect once merged.
+#
+# File kept as post_fork_coverage_comment.yaml for run-history continuity.
+name: Post Coverage Comment
 
 on:
+  workflow_run:
+    workflows:
+      - E2E
+    types:
+      - completed
   pull_request_target:
     types:
       - opened
@@ -35,11 +60,20 @@ permissions:
   contents: read
 
 jobs:
-  post-fork-coverage-comment:
-    if: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+  post-coverage-comment:
+    # For workflow_run events any conclusion qualifies - the artifact presence
+    # below gates the posting, so a failed e2e matrix does not block the
+    # comment as long as cpu-ut uploaded the coverage report.
+    if: >-
+      ${{
+        github.event_name == 'pull_request_target' ||
+        (github.event_name == 'workflow_run' &&
+         github.event.workflow_run.pull_requests[0] != null)
+      }}
     runs-on: ubuntu-latest
     steps:
       - name: Find successful pull_request run for this head
+        if: ${{ github.event_name == 'pull_request_target' }}
         id: find-run
         uses: actions/github-script@v7
         with:
@@ -55,17 +89,29 @@ jobs:
             });
             return data.workflow_runs[0]?.id || '';
 
+      - name: Resolve source run id
+        id: resolve-run
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            # The E2E run that just completed. Its cpu-ut jobs may have
+            # uploaded coverage-report even when the run itself failed.
+            echo "run_id=${{ github.event.workflow_run.id }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_id=${{ steps.find-run.outputs.result }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Download diff coverage report
-        if: ${{ steps.find-run.outputs.result != '' }}
+        if: ${{ steps.resolve-run.outputs.run_id != '' }}
+        continue-on-error: true
         uses: actions/download-artifact@v8
         with:
           pattern: coverage-report*
           merge-multiple: true
-          run-id: ${{ steps.find-run.outputs.result }}
+          run-id: ${{ steps.resolve-run.outputs.run_id }}
           path: ./coverage-report
 
       - name: Locate diff coverage markdown
-        if: ${{ steps.find-run.outputs.result != '' }}
+        if: ${{ steps.resolve-run.outputs.run_id != '' }}
         run: |
           f=$(find ./coverage-report -type f -name diff_coverage.md | head -1)
           if [ -z "$f" ]; then
@@ -75,9 +121,9 @@ jobs:
           cp "$f" ./diff_coverage.md
 
       - name: Post diff coverage as PR comment
-        if: ${{ steps.find-run.outputs.result != '' && hashFiles('./diff_coverage.md') != '' }}
+        if: ${{ steps.resolve-run.outputs.run_id != '' && hashFiles('./diff_coverage.md') != '' }}
         uses: thollander/actions-comment-pull-request@v2.5.0
         with:
           filePath: ./diff_coverage.md
-          pr_number: ${{ github.event.number }}
+          pr_number: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].number || github.event.number }}
           comment_tag: ./tests/diff-coverage # 用于后续更新同一条评论

@@ -31,25 +31,6 @@ num_npus="$2"
 mode="$3"
 shift 3
 
-# Slipcover-path pytest-xdist parallelism. "-n auto" would spawn one worker
-# per CPU (192 on the NPU runners). cpu-ut tests are lightweight CPU-only
-# tests, so they keep a fixed parallel cap. NPU e2e targets must stay
-# serial: every e2e worker starts vLLM engine subprocesses that each demand
-# ~0.9 of the card's memory on startup, and engines co-scheduled by parallel
-# workers on one card trip the startup free-memory check ("Free memory on
-# device ... less than desired GPU memory utilization"), OOM, or hang in
-# rendezvous (CI run 112255469614 failed 17/24 e2e jobs this way; run
-# 111649013424 hit worker-crash storms). Serial matches the pre-slipcover
-# behavior for e2e. PYTEST_XDIST_WORKERS overrides both.
-pytest_xdist_workers="${PYTEST_XDIST_WORKERS:-}"
-if [ -z "${pytest_xdist_workers}" ]; then
-  if [ "${npu_type}" = "cpu" ]; then
-    pytest_xdist_workers=16
-  else
-    pytest_xdist_workers=1
-  fi
-fi
-
 record_timing=false
 if [ "$1" = "--timing" ]; then
   record_timing=true
@@ -207,7 +188,11 @@ run_pytest_target() {
     run_logged_command "${log_file}" python -m coverage run --rcfile="${project_root}/tests/coveragerc" -m pytest -sv --color=yes "${target}"
   else
     set +e
-    run_logged_command "${log_file}" python -m slipcover --source="${project_root}/vllm_ascend" --omit="*/tests/*" --json --out "${project_root}/tests/coverage.json" -m pytest -n "${pytest_xdist_workers}" -sv --color=yes "${target}"
+    if [ "${npu_type}" = "cpu" ]; then
+      run_logged_command "${log_file}" python -m slipcover --source="${project_root}/vllm_ascend" --omit="*/tests/*" --json --out "${project_root}/tests/coverage.json" -m pytest -n auto -sv --color=yes "${target}"
+    else
+      run_logged_command "${log_file}" pytest -sv --color=yes "${target}"
+    fi
   fi
   local status=$?
   set -e
@@ -258,7 +243,11 @@ run_pytest_batch() {
     run_logged_command "${log_file}" python -m coverage run --rcfile="${project_root}/tests/coveragerc" -m pytest -sv --color=yes "${batch_targets[@]}"
   else
     set +e
-    run_logged_command "${log_file}" python -m slipcover --source="${project_root}/vllm_ascend" --omit="*/tests/*" --json --out "${project_root}/tests/coverage.json" -m pytest -n "${pytest_xdist_workers}" -sv --color=yes "${batch_targets[@]}"
+    if [ "${npu_type}" = "cpu" ]; then
+      run_logged_command "${log_file}" python -m slipcover --source="${project_root}/vllm_ascend" --omit="*/tests/*" --json --out "${project_root}/tests/coverage.json" -m pytest -n auto -sv --color=yes "${batch_targets[@]}"
+    else
+      run_logged_command "${log_file}" pytest -sv --color=yes "${batch_targets[@]}"
+    fi
   fi
   local status=$?
   set -e
