@@ -27,6 +27,10 @@
 #   coverage-report artifact, which they do on success even when the e2e
 #   matrix fails. There is no per-job completion trigger in GitHub Actions,
 #   so run completion is the earliest point a fork comment can be posted.
+#   NOTE: for fork PRs the workflow_run payload carries an empty
+#   pull_requests[] array, so the PR number is not read from the payload -
+#   it travels in the pr-context artifact uploaded by the E2E run's
+#   upload-pr-context job (pr_test.yaml).
 # - pull_request_target (opened/synchronize) covers the rare case where a
 #   successful run for the head sha already exists when the PR is opened or
 #   re-opened. Without the workflow_run trigger, a fork PR would never get
@@ -61,14 +65,15 @@ permissions:
 
 jobs:
   post-coverage-comment:
-    # For workflow_run events any conclusion qualifies - the artifact presence
-    # below gates the posting, so a failed e2e matrix does not block the
-    # comment as long as cpu-ut uploaded the coverage report.
+    # For workflow_run events any completed E2E run qualifies. E2E is
+    # pull_request-only, and the pr-context artifact (uploaded by the E2E
+    # run's upload-pr-context job) gates the posting inside the steps - so a
+    # failed e2e matrix does not block the comment as long as cpu-ut
+    # uploaded the coverage report.
     if: >-
       ${{
         github.event_name == 'pull_request_target' ||
-        (github.event_name == 'workflow_run' &&
-         github.event.workflow_run.pull_requests[0] != null)
+        github.event_name == 'workflow_run'
       }}
     # Self-hosted CPU label: this org has no GitHub-hosted runners, so
     # ubuntu-latest would queue forever. Lightweight artifact-download and
@@ -103,6 +108,36 @@ jobs:
             echo "run_id=${{ steps.find-run.outputs.result }}" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Download PR context
+        if: ${{ steps.resolve-run.outputs.run_id != '' }}
+        id: download-pr-context
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          pattern: pr-context*
+          merge-multiple: true
+          run-id: ${{ steps.resolve-run.outputs.run_id }}
+          path: ./pr-context
+
+      - name: Resolve PR number
+        if: ${{ steps.resolve-run.outputs.run_id != '' }}
+        id: resolve-pr-number
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            # workflow_run.pull_requests is empty for fork PRs, so the PR
+            # number comes from the pr-context artifact. Its absence also
+            # proves this run is not a pull_request run - do not comment.
+            if [ -f ./pr-context/pr_context.json ]; then
+              pr_number=$(python3 -c "import json; print(json.load(open('./pr-context/pr_context.json'))['pr_number'])")
+              echo "pr_number=${pr_number}" >> "$GITHUB_OUTPUT"
+            else
+              echo "::warning::pr-context artifact not found; nothing to post"
+              echo "pr_number=" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "pr_number=${{ github.event.number }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Download diff coverage report
         if: ${{ steps.resolve-run.outputs.run_id != '' }}
         continue-on-error: true
@@ -124,9 +159,9 @@ jobs:
           cp "$f" ./diff_coverage.md
 
       - name: Post diff coverage as PR comment
-        if: ${{ steps.resolve-run.outputs.run_id != '' && hashFiles('./diff_coverage.md') != '' }}
+        if: ${{ steps.resolve-run.outputs.run_id != '' && steps.resolve-pr-number.outputs.pr_number != '' && hashFiles('./diff_coverage.md') != '' }}
         uses: thollander/actions-comment-pull-request@v2.5.0
         with:
           filePath: ./diff_coverage.md
-          pr_number: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].number || github.event.number }}
+          pr_number: ${{ steps.resolve-pr-number.outputs.pr_number }}
           comment_tag: ./tests/diff-coverage # 用于后续更新同一条评论
