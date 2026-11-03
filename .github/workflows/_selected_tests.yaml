@@ -57,6 +57,11 @@ on:
         required: false
         default: false
         description: 'Whether to run tests with coverage enabled.'
+      fast-exit:
+        type: boolean
+        required: false
+        default: false
+        description: 'Skip test execution and upload a dummy coverage report. Test hook for the coverage comment pipeline.'
       coverage-file-suffix:
         type: string
         required: false
@@ -362,7 +367,7 @@ jobs:
           pip uninstall -y triton-ascend triton
 
       - name: Run selected tests with device
-        if: ${{ matrix.group.npu_type != 'cpu' }}
+        if: ${{ matrix.group.npu_type != 'cpu' && !inputs.fast-exit }}
         continue-on-error: ${{ inputs.continue_on_error }}
         env:
           VLLM_WORKER_MULTIPROC_METHOD: spawn
@@ -384,7 +389,7 @@ jobs:
             ${{ matrix.group.tests }}
 
       - name: Run selected tests without device
-        if: ${{ matrix.group.npu_type == 'cpu' }}
+        if: ${{ matrix.group.npu_type == 'cpu' && !inputs.fast-exit }}
         continue-on-error: ${{ inputs.continue_on_error }}
         env:
           VLLM_WORKER_MULTIPROC_METHOD: spawn
@@ -400,6 +405,18 @@ jobs:
             "without-device" \
             ${{ matrix.group.tests }}
 
+      - name: Write dummy diff coverage report (fast-exit)
+        if: ${{ inputs.fast-exit }}
+        run: |
+          mkdir -p tests
+          cat > tests/diff_coverage.md <<'EOF'
+          # Diff Coverage (fast-exit test run)
+
+          Tests were skipped by the fast-exit hook; this dummy report only
+          exercises the coverage-comment pipeline.
+          EOF
+          echo "wrote dummy tests/diff_coverage.md"
+
       - name: Upload timing data
         if: ${{ inputs.upload_timing && matrix.group.npu_type != 'cpu' }}
         continue-on-error: true
@@ -411,11 +428,13 @@ jobs:
           retention-days: 7
 
       - name: Generate Cobertura XML from coverage data
+        if: ${{ !inputs.fast-exit }}
         run: |
           python -m slipcover --merge ./tests/coverage.json \
             --xml --out ./tests/coverage.xml
 
       - name: Check coverage on new code
+        if: ${{ !inputs.fast-exit }}
         run: |
           pip install diff-cover
           diff-cover ./tests/coverage.xml --compare-branch=origin/${{ github.base_ref }} \
