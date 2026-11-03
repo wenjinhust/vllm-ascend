@@ -72,6 +72,12 @@ skip_tests:
   - tests/e2e/pull_request/two_card/aclgraph/test_aclgraph_capture_replay.py
   # Temporarily skipped: this test is currently broken
   - tests/e2e/pull_request/four_card/spec_decode/test_mtp_step3p5.py
+  # TEMP (fast-exit test): keep these files from falling back to a2-1 while
+  # the a5-4 runner_mapping entries above are commented out
+  # (test_flash_attn_precision uses A5-specific PA_BBND/PA_BNBD layouts).
+  # REVERT BEFORE MERGE.
+  - tests/e2e/pull_request/one_card/test_flash_attn_precision.py
+  - tests/e2e/pull_request/one_card/test_swiglu_mx_quant.py
 
 # === Accuracy Tests ===
 # The accuracy tests. When at least one of these files is selected,
@@ -112,10 +118,13 @@ runner_mapping:
   # Run the TP=1 KV pool test on the smallest available A3 runner.
   tests/e2e/pull_request/one_card/test_kv_pool_accuracy\.py$:
     default: a3-2
-  tests/e2e/pull_request/one_card/test_flash_attn_precision\.py$:
-    default: a5-4
-  tests/e2e/pull_request/one_card/test_swiglu_mx_quant\.py$:
-    default: a5-4
+  # TEMP (fast-exit test): the linux-aarch64-a5-4 runner pool is currently
+  # unavailable (jobs queue for hours), so drop the a5-4 partition from the
+  # ready-all matrix. REVERT BEFORE MERGE.
+  # tests/e2e/pull_request/one_card/test_flash_attn_precision\.py$:
+  #   default: a5-4
+  # tests/e2e/pull_request/one_card/test_swiglu_mx_quant\.py$:
+  #   default: a5-4
   tests/e2e/pull_request/one_card:
     default: a2-1
     310p: 310p-1
