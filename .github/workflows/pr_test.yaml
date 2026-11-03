@@ -273,8 +273,6 @@ jobs:
       test_groups: >-
         [{"partition_name":"cpu-ut","runner":"linux-amd64-cpu-8-hk","image_tag":"9.2.1-910b-ubuntu22.04-py3.12","npu_type":"cpu","num_npus":0,"tests":"tests/ut"}]
       enable-coverage: false
-      # TEMP: fast-exit to exercise the coverage-comment pipeline. REVERT BEFORE MERGE.
-      fast-exit: true
 
   recommend-tests:
     name: Recommend tests
