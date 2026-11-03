@@ -645,8 +645,9 @@ jobs:
         vllm_version: ${{ fromJSON(needs.pre-commit.outputs.vllm_versions) }}
     # TEMP: inline instant-success stand-in for the reusable-workflow call, so
     # the job goes green in seconds without waiting for any self-hosted NPU
-    # runner. REVERT BEFORE MERGE.
-    runs-on: ubuntu-latest
+    # runner. NOTE: must use a self-hosted CPU label - this org has no
+    # GitHub-hosted runners (ubuntu-latest queues forever). REVERT BEFORE MERGE.
+    runs-on: linux-amd64-cpu-8-hk
     steps:
       - name: Fast success (TEMP test hook)
         run: echo "run-selected-tests bypassed by the TEMP instant-success hook"
