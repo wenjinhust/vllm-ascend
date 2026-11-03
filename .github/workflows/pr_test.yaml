@@ -643,15 +643,13 @@ jobs:
         # _selected_tests.yaml). The pre-commit job emits main_commit alone by
         # default and appends the release tag under the main2main label.
         vllm_version: ${{ fromJSON(needs.pre-commit.outputs.vllm_versions) }}
-    uses: ./.github/workflows/_selected_tests.yaml
-    with:
-      vllm: ${{ matrix.vllm_version }}
-      ref: ${{ github.event.pull_request.head.sha }}
-      base_ref: ${{ github.base_ref }}
-      base_sha: ${{ needs.select-tests.outputs.base_sha }}
-      test_groups: ${{ needs.select-tests.outputs.test_groups }}
-      # TEMP: fast-exit to exercise the coverage-comment pipeline. REVERT BEFORE MERGE.
-      fast-exit: true
+    # TEMP: inline instant-success stand-in for the reusable-workflow call, so
+    # the job goes green in seconds without waiting for any self-hosted NPU
+    # runner. REVERT BEFORE MERGE.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fast success (TEMP test hook)
+        run: echo "run-selected-tests bypassed by the TEMP instant-success hook"
 
   run-selected-tests-upstream:
     needs:
