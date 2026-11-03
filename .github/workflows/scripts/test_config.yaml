@@ -139,9 +139,12 @@ runner_mapping:
 # Maps logical test buckets to exact labels from runner_label.json and controls
 # how many load-balanced groups are created for each bucket.
 partition:
-  a5-4:
-    runner_label: linux-aarch64-a5-4
-    count: 1
+  # TEMP (fast-exit test): a5-4 runner pool unavailable; no tests route to
+  # this partition while the runner_mapping entries above are commented out
+  # (coverage.py rejects an unused partition). REVERT BEFORE MERGE.
+  # a5-4:
+  #   runner_label: linux-aarch64-a5-4
+  #   count: 1
   310p-1:
     runner_label: linux-aarch64-310p-1
     count: 2
