@@ -224,7 +224,7 @@ def test_async_merged_bus_warns_when_drain_waits():
     group.rank_in_group = 0
 
     def _slow_sync(g, bits, *, wave_idx=None):
-        gate.wait(5.0)
+        gate.wait(2.0)
         return [False, False]
 
     try:
