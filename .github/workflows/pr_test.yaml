@@ -267,7 +267,7 @@ jobs:
       base_ref: ${{ github.base_ref }}
       test_groups: >-
         [{"partition_name":"cpu-ut","runner":"linux-amd64-cpu-8-hk","image_tag":"9.2.0_20261025172600-910b-ubuntu22.04-py3.12","npu_type":"cpu","num_npus":0,"tests":"tests/ut"}]
-      enable-coverage: false
+      enable-coverage: true
 
   recommend-tests:
     name: Recommend tests
@@ -590,8 +590,14 @@ jobs:
     # which is skipped under ready-all or main2main. Without a status check
     # function, the skipped need propagates transitively and skips this job
     # even when select-tests succeeded.
+    #
+    # TEMP DEBUG: force-fail this job on entry so downstream run-selected-tests*
+    # (which all require prepare-csrc-cache.result == 'success') do not run. The
+    # job reports 'failure' (not 'skip'), since a reusable workflow (uses:) cannot
+    # hold inline steps. REVERT BEFORE MERGE.
     if: >-
       ${{
+        false &&
         !cancelled() &&
         needs.select-tests.result == 'success' &&
         (
